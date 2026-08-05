@@ -446,8 +446,7 @@ module.exports = class MoreRoleColors {
                 text-decoration-color: var(--text-default, var(--text-normal, #dbdee1)) !important;
             }
 
-            [class*="markup_"] [class*="mention"],
-            [class*="markup_"] [class*="roleMention"],
+            [class*="markup_"] [class*="mention" i],
             [class*="markup_"] a,
             [class*="markup_"] [class*="timestamp"],
             [class*="markup_"] [class*="spoilerContent"],
