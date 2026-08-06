@@ -871,16 +871,9 @@ module.exports = class MoreRoleColors {
             });
         }
 
-        try {
-            BdApi.Webpack.waitForModule(
-                m => m?.displayName === "ForwardRef(FluxContainer(GuildSettingsAuditLogEntry))",
-                { defaultExport: true, searchExports: false }
-            ).then((FluxContainerModule) => {
-                if (FluxContainerModule) attemptPatchAuditLogUser(FluxContainerModule);
-            }).catch(error => console.warn("[MoreRoleColors] Could not patch audit log", error));
-        } catch (error) {
-            console.warn("[MoreRoleColors] Could not search for the audit log module", error);
-        }
+        BdApi.Webpack.waitForModule(m => m.displayName === "ForwardRef(FluxContainer(GuildSettingsAuditLogEntry))").then((FluxContainerModule) => {
+            attemptPatchAuditLogUser(FluxContainerModule);
+        });
     }
 
     patchRoleHeaders() {
