@@ -2,7 +2,7 @@
  * @name PingNotification
  * @author DaddyBoard
  * @authorId 241334335884492810
- * @version 9.4.3
+ * @version 9.4.5
  * @description Show in-app notifications for anything you would hear a ping for.
  * @source https://github.com/DaddyBoard/BD-Plugins
  * @invite ggNWGDV7e2
@@ -17,67 +17,30 @@ const { Filters } = Webpack;
 if (BdApi.Plugins.get("ZeresPluginLibrary")) {
     BdApi.UI.showConfirmationModal("PingNotification", "ZeresPluginLibrary is installed. This plugin will not work with it. Please DELETE it and reload Discord. ZLib has been hard-broken for some time now, and no official plugins need this library anymore. It should be deleted off your system.");
 }
-const [
-    NotificationUtils,
-    NotificationSoundModule,
-    MessageConstructor,
-    transitionTo,
-    Dispatcher,
-    MessageActions,
-    hasThreadElementModule,
-    Message,
-    messageReferenceSelectors,
-    PopoutModule,
-    trailingModule,
-    DiscordProgressBar,
-    constructMessageObj,
-    ChannelConstructor,
-    useStateFromStores,
-    appSidePanelSelectors
-] = Webpack.getBulk(
-    { filter: Webpack.Filters.byStrings("SUPPRESS_NOTIFICATIONS", "SELF_MENTIONABLE_SYSTEM"), searchExports: true }, // NotificationUtils
-    { filter: m => m?.playNotificationSound }, // NotificationSoundModule
-    { filter: Webpack.Filters.byPrototypeKeys("addReaction") }, // MessageConstructor
-    { filter: Webpack.Filters.byStrings("transitionToGuild - Transitioning to"), searchExports: true }, // transitionTo
-    { filter: Webpack.Filters.byKeys("subscribe", "dispatch"), searchExports: true }, // Dispatcher
-    { filter: Webpack.Filters.byKeys("fetchMessage", "deleteMessage") }, // MessageActions
-    { filter: Webpack.Filters.byKeys("hasThread") }, // hasThreadElementModule
-    { filter: Webpack.Filters.bySource("Message must not be a thread starter message"), declarationFilter: (m) => m.type?.toString().includes("Message must not be a thread starter message")}, // Message
-    { filter: Webpack.Filters.byKeys("messageSpine", "repliedMessageClickableSpine") }, // messageReferenceSelectors
-    { filter: (a) => a?.prototype?.render && a.Animation, searchExports: true }, // PopoutModule
-    { filter: Webpack.Filters.byKeys('bar', 'trailing') }, // trailingModule
-    { filter: Webpack.Filters.byStrings("percent", "foregroundGradientColor"), searchExports: true }, // DiscordProgressBar
-    { filter: Webpack.Filters.byStrings("message_reference", "isProbablyAValidSnowflake"), searchExports: true }, // constructMessageObj
-    { filter: Webpack.Filters.byPrototypeKeys("addCachedMessages") }, // ChannelConstructor
-    { filter: Webpack.Filters.byStrings("getStateFromStores"), searchExports: true }, // useStateFromStores
-    { filter: Webpack.Filters.byKeys("appAsidePanelWrapper", "app") } // appSidePanelSelectors
-);
-
-function resolveRenderMessage(InboxTabs) {
-    const tabNode = BdApi.ReactUtils.wrapInHooks(InboxTabs)({ tab: 1 })
-        .props.children.props.children.props.children;
-    return BdApi.ReactUtils.wrapInHooks(tabNode.type)({}).props.renderMessage;
-}
-
-let renderMessage = null;
-{
-    const inboxFilter = Webpack.Filters.byStrings(".BOOKMARKS?(", ".MENTIONS?(");
-    const tryResolve = (mod) => {
-        try { renderMessage = resolveRenderMessage(mod); }
-        catch (e) { console.error("[PingNotification] resolveRenderMessage failed:", e); }
-    };
-    const existing = BdApi.Webpack.getModule(inboxFilter, { searchExports: true });
-    if (existing) {
-        tryResolve(existing);
-    } else {
-        Webpack.waitForModule(inboxFilter, { searchExports: true }).then(mod => {
-            if (mod) tryResolve(mod);
-            if (!renderMessage) {
-                UI.showNotice("PingNotification ERROR: Could not resolve the renderMessage function. Please report this on the Github page!", { type: 'error' });
-            }
-        });
-    }
-}
+let NotificationUtils;
+let NotificationSoundModule;
+let MessageConstructor;
+let transitionTo;
+let Dispatcher;
+let MessageActions;
+let Message;
+let PopoutModule;
+let trailingModule;
+let DiscordProgressBar;
+let constructMessageObj;
+let ChannelConstructor;
+let useStateFromStores;
+let appSidePanelSelectors;
+let trailing;
+let UserFetchModule;
+let windowArea;
+let MemberAreaAvatar;
+let ChannelAckModule;
+let updateMessageReferenceStore;
+let appAsidePanelWrapper;
+let app;
+let container;
+let appElem;
 
 const {
     IdleStore,
@@ -96,38 +59,9 @@ const {
     SpeakingStore
 } = BdApi.Webpack.Stores;
 
-if (!NotificationUtils) {
-    UI.showNotice("PingNotification ERROR: Could not find the NotificationUtils module. Please report this on the Github page!", { type: 'error' });
-}
-
-const hasThreadElement = hasThreadElementModule.hasThread;
-const trailing = trailingModule.trailing;
-const UserFetchModule = Webpack.getMangled('type:"USER_PROFILE_FETCH_START"', { fetchUser: Webpack.Filters.byStrings("USER_UPDATE", "Promise.resolve") })
-const windowArea = BdApi.Webpack.getById("71855");
-
-const MemberAreaAvatarFilter = BdApi.Webpack.Filters.byStrings("statusColor", "isTyping");
-const MemberAreaAvatar = BdApi.Webpack.getModule(x => MemberAreaAvatarFilter(x?.type), { searchExports: true });
-
-const ChannelAckModule = (() => {
-    const filter = BdApi.Webpack.Filters.byStrings("type:\"CHANNEL_ACK\",channelId", "type:\"BULK_ACK\",channels:");
-    const module = BdApi.Webpack.getModule((e, m) => filter(BdApi.Webpack.modules[m.id]));
-    return Object.values(module).find(m => m.toString().includes("type:\"CHANNEL_ACK\",channelId"));
-})();
-const updateMessageReferenceStore = (()=>{
-    function getActionHandler(){
-        const nodes = Dispatcher._actionHandlers._dependencyGraph.nodes;
-        const storeHandlers = Object.values(nodes).find(({ name }) => name === "ReferencedMessageStore");
-        return storeHandlers.actionHandler["CREATE_PENDING_REPLY"];
-    }
-    const target = getActionHandler();
-    return (message) => target({message});
-})();
-
-const { appAsidePanelWrapper, app } = appSidePanelSelectors;
-let container = document.querySelector(`#app-mount > div.${appAsidePanelWrapper} > div`);
-let appElem = container ? container.querySelector(`.${app}`) : null;
-
 function updateDOMReferences() {
+    if (!appSidePanelSelectors) return;
+    ({ appAsidePanelWrapper, app } = appSidePanelSelectors);
     container = document.querySelector(`#app-mount > div.${appAsidePanelWrapper} > div`);
     appElem = container ? container.querySelector(`.${app}`) : null;
 }
@@ -137,10 +71,10 @@ let liveMessages = [];
 const config = {
     changelog: [
         {
-            "title": "9.4.2",
+            "title": "9.4.5",
             "type": "added",
             "items": [
-                "Fixed launch issues and reverted back temporary code."
+                "Fixed launch issues, re-enabled history and reverted back temporary code."
             ]
         }
     ],
@@ -629,38 +563,23 @@ module.exports = class PingNotification {
         this.messageThreadCreateHandler = this.messageThreadCreateHandler.bind(this);
         this.threadDeleteHandler = this.threadDeleteHandler.bind(this);
         this.reactionRemoveHandler = this.reactionRemoveHandler.bind(this);
+    }
 
-        let missingModules = false;
-        let missingModulesName = "";
-
-        if (!appSidePanelSelectors.app) {
-            missingModules = true;
-            missingModulesName = "appSidePanelSelectors";
-        }
-        if (!NotificationUtils) {
-            missingModules = true;
-            missingModulesName = "NotificationUtils";
-        }
-        if (!windowArea) {
-            missingModules = true;
-            missingModulesName = "windowArea";
-        }
-        if (missingModules) {
-            UI.showNotification({
-                title: "PingNotification",
-                content: `**ERROR:** Could not find the ${missingModulesName} module. Please report this on the Github page!`,
-                type: "error",
-                duration: 30000,
-                actions: [
-                    {
-                        label: "Open Github",
-                        onClick: () => {
-                            window.open(`https://github.com/DaddyBoard/BD-Plugins/issues/new?title=Auto%20generated%20bug%20report%20for%20missing%20module&body=Filter%20search%20for%20%60${missingModulesName}%60%20failed.`);
-                        }
+    reportMissingModule(missingModulesName) {
+        UI.showNotification({
+            title: "PingNotification",
+            content: `**ERROR:** Could not find the ${missingModulesName} module. Please report this on the Github page!`,
+            type: "error",
+            duration: 30000,
+            actions: [
+                {
+                    label: "Open Github",
+                    onClick: () => {
+                        window.open(`https://github.com/DaddyBoard/BD-Plugins/issues/new?title=Auto%20generated%20bug%20report%20for%20missing%20module&body=Filter%20search%20for%20%60${missingModulesName}%60%20failed.`);
                     }
-                ]
-            })
-        }
+                }
+            ]
+        });
     }
 
     inMana(node) {
@@ -686,8 +605,6 @@ module.exports = class PingNotification {
             });
             BdApi.Data.save('PingNotification', 'lastVersion', this.meta.version);
         }
-
-        await BdApi.Utils.forceLoad(BdApi.Webpack.getBySource("RecentsPopoutRenderer", { raw: true, searchDefault: false }).id)
 
         this.messageCreateHandler = (event) => {
             if (!event?.message) return;
@@ -726,6 +643,79 @@ module.exports = class PingNotification {
             }
         };
 
+        const MemberAreaAvatarFilter = Filters.byStrings("statusColor", "isTyping");
+        let hasThreadElementModule;
+        let messageReferenceSelectors;
+        [
+            NotificationUtils,
+            NotificationSoundModule,
+            MessageConstructor,
+            transitionTo,
+            Dispatcher,
+            MessageActions,
+            Message,
+            PopoutModule,
+            trailingModule,
+            DiscordProgressBar,
+            constructMessageObj,
+            ChannelConstructor,
+            useStateFromStores,
+            appSidePanelSelectors,
+            hasThreadElementModule,
+            messageReferenceSelectors,
+            MemberAreaAvatar
+        ] = await Promise.all([
+            Webpack.waitForModule(Filters.byStrings("SUPPRESS_NOTIFICATIONS", "SELF_MENTIONABLE_SYSTEM"), { searchExports: true }),
+            Webpack.waitForModule(m => m?.playNotificationSound),
+            Webpack.waitForModule(Filters.byPrototypeKeys("addReaction")),
+            Webpack.waitForModule(Filters.byStrings("transitionToGuild - Transitioning to"), { searchExports: true }),
+            Webpack.waitForModule(Filters.byKeys("subscribe", "dispatch"), { searchExports: true }),
+            Webpack.waitForModule(Filters.byKeys("fetchMessage", "deleteMessage")),
+            Webpack.waitForModule(
+                Filters.bySource("Message must not be a thread starter message"),
+                { declarationFilter: (m) => m.type?.toString().includes("Message must not be a thread starter message") }
+            ),
+            Webpack.waitForModule((a) => a?.prototype?.render && a.Animation, { searchExports: true }),
+            Webpack.waitForModule(Filters.byKeys("bar", "trailing")),
+            Webpack.waitForModule(Filters.byStrings("percent", "foregroundGradientColor"), { searchExports: true }),
+            Webpack.waitForModule(Filters.byStrings("message_reference", "isProbablyAValidSnowflake"), { searchExports: true }),
+            Webpack.waitForModule(Filters.byPrototypeKeys("addCachedMessages")),
+            Webpack.waitForModule(Filters.byStrings("getStateFromStores"), { searchExports: true }),
+            Webpack.waitForModule(Filters.byKeys("appAsidePanelWrapper", "app")),
+            Webpack.waitForModule(Filters.byKeys("hasThread")),
+            Webpack.waitForModule(Filters.byKeys("messageSpine", "repliedMessageClickableSpine")),
+            Webpack.waitForModule(x => MemberAreaAvatarFilter(x?.type), { searchExports: true })
+        ]);
+
+        trailing = trailingModule.trailing;
+        updateDOMReferences();
+
+        UserFetchModule = Webpack.getMangled("type:\"USER_PROFILE_FETCH_START\"", { fetchUser: Filters.byStrings("USER_UPDATE", "Promise.resolve") });
+        windowArea = Webpack.getById("71855");
+
+        const channelAckFilter = Filters.byStrings("type:\"CHANNEL_ACK\",channelId", "type:\"BULK_ACK\",channels:");
+        const channelAckModule = Webpack.getModule((e, m) => channelAckFilter(Webpack.modules[m.id]));
+        ChannelAckModule = Object.values(channelAckModule).find(m => m.toString().includes("type:\"CHANNEL_ACK\",channelId"));
+
+        const nodes = Dispatcher._actionHandlers._dependencyGraph.nodes;
+        const storeHandlers = Object.values(nodes).find(({ name }) => name === "ReferencedMessageStore");
+        const createPendingReply = storeHandlers.actionHandler["CREATE_PENDING_REPLY"];
+        updateMessageReferenceStore = (message) => createPendingReply({ message });
+
+        let missingModulesName = null;
+        if (!appSidePanelSelectors?.app) missingModulesName = "appSidePanelSelectors";
+        else if (!NotificationUtils) missingModulesName = "NotificationUtils";
+        else if (!windowArea) missingModulesName = "windowArea";
+        else if (!Dispatcher) missingModulesName = "Dispatcher";
+        else if (!Message) missingModulesName = "Message";
+        if (missingModulesName) {
+            this.reportMissingModule(missingModulesName);
+            return;
+        }
+
+        this.css = this.getCss(hasThreadElementModule.hasThread, messageReferenceSelectors);
+        BdApi.DOM.addStyle("PingNotificationStyles", this.css);
+
         if (this.settings.showHistoryButton) {
             this.patchTitleBar();
         }
@@ -744,7 +734,6 @@ module.exports = class PingNotification {
             });
             this.domObserver.observe(appMount, { childList: true, subtree: false });
         }
-        BdApi.DOM.addStyle("PingNotificationStyles", this.css);
 
         if (this.settings.autoSubscribeToAllServers) {
             this.autoSubscribeToAllServers();
@@ -950,7 +939,8 @@ module.exports = class PingNotification {
         });
     }
 
-    css = `
+    getCss(hasThreadElement, messageReferenceSelectors) {
+        return `
         .ping-notification {
             color: var(--text-default);
             border-radius: 12px;
@@ -1264,13 +1254,22 @@ module.exports = class PingNotification {
             margin-bottom: 8px;
             -webkit-padding-start: 0;
             padding-inline-start: 0;
+            padding-top: 6px;
+            padding-bottom: 6px;
             margin-inline-start: -16px;
             position: relative;
-            transition: background-color 0.15s ease;
+            border: 1px solid var(--border-subtle, var(--background-modifier-accent));
+            border-radius: 8px;
+            transition: border-color 0.15s ease, background-color 0.15s ease;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             margin-left: 0em;
+        }
+
+        .pn-hist-popout-item:hover {
+            border-color: var(--border-strong, rgba(255, 255, 255, 0.12));
+            background-color: var(--background-modifier-selected);
         }
 
         .pn-hist-popout-item:last-child {
@@ -1278,17 +1277,16 @@ module.exports = class PingNotification {
         }
 
 
-        .pn-hist-messageContent [class*="buttonContainer_"] {
-            display: none !important;
-        }
-
-        .pn-hist-popout [class*="hoverButtonGroup_"],
-        .pn-hist-popout [class*="codeActions_"],
+        .pn-hist-messageContent [class*="buttonContainer"],
+        .pn-hist-popout [class*="hoverButtonGroup"],
+        .pn-hist-popout [class*="buttonContainer"],
+        .pn-hist-popout [class*="codeActions"],
         .pn-hist-popout [class*="reactionBtn"] {
             display: none !important;
         }
 
     `;
+    }
 
     onMessageReceived(event, update) {
         if (!event.message?.channel_id) return;
@@ -2635,27 +2633,6 @@ function addMessage(message) {
     ChannelConstructor.commit(newChannel);
 }
 
-function RenderMessage({message, item, onClickCallback, shiftHeld}) {
-    if (!renderMessage) return null;
-
-    const isThreadDummy = item?.id?.startsWith('PingNotification-Thread-');
-    const jumpChannelId = item?.fullMessage?.message_reference?.channel_id ?? message.channel_id;
-    const jumpMessageId = isThreadDummy ? null : (item?.fullMessage?.message_reference?.message_id ?? message.id);
-
-    const [node] = renderMessage(message, () => {
-        const channel = ChannelStore.getChannel(jumpChannelId);
-        transitionTo(channel.guild_id, channel.id, jumpMessageId);
-        if (onClickCallback) onClickCallback();
-    });
-
-    const messageContainer = node.type(node.props)?.props?.children?.[1];
-    
-    if (message.state === "SEND_FAILED" && !shiftHeld) {
-        return React.cloneElement(messageContainer, {}, messageContainer.props.children[1]);
-    }
-
-    return messageContainer;
-}
 
 function createPopout(pluginInstance) {
     return React.createElement(class extends React.Component {
@@ -2823,6 +2800,7 @@ class PopoutContent extends React.Component {
 
         const sentinelPosition = displayCount - 3;
         let messageCounter = 0;
+        
 
         return React.createElement('div', {
             ref: this.scrollRef,
@@ -2901,22 +2879,54 @@ class PopoutContent extends React.Component {
                         ]),
                         ...group.messages.map((item, msgIndex) => {
                             const message = MessageStore.getMessage(item.channel_id, item.id);
-                            if (!message) return null;
+                            const channel = ChannelStore.getChannel(item.channel_id);
+                            if (!message || !channel) return null;
 
                             const currentIndex = messageCounter++;
                             const elements = [];
                             
                             elements.push(React.createElement('div', {
                                 key: `${item.id}-${msgIndex}`,
-                                className: 'pn-hist-popout-item'
-                            }, 
-                                React.createElement(RenderMessage, {
-                                    message: message,
-                                    item: item,
-                                    onClickCallback: null,
-                                    shiftHeld: shiftHeld
+                                className: 'pn-hist-popout-item',
+                                style: { position: 'relative' }
+                            }, [
+                                React.createElement('ul', {
+                                    key: "message-list",
+                                    style: {
+                                        listStyle: 'none',
+                                        margin: 0,
+                                        padding: 0,
+                                        pointerEvents: 'none'
+                                    },
+                                },
+                                    React.createElement(Message, {
+                                        id: `${message.id}-${message.id}`,
+                                        groupId: message.id,
+                                        channel: channel,
+                                        message: message,
+                                        compact: false,
+                                        renderContentOnly: false,
+                                        animateAvatar: false,
+                                        className: "pn-hist-messageContent"
+                                    })
+                                ),
+                                React.createElement('div', {
+                                    key: "click-overlay",
+                                    style: {
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        zIndex: 10,
+                                        cursor: 'pointer',
+                                        backgroundColor: 'transparent'
+                                    },
+                                    onClick: () => {
+                                        transitionTo(channel.guild_id, item.channel_id, item.id);
+                                    }
                                 })
-                            ));
+                            ]));
 
                             if (currentIndex === sentinelPosition) {
                                 elements.push(React.createElement('div', {
