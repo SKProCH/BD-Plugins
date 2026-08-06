@@ -871,9 +871,16 @@ module.exports = class MoreRoleColors {
             });
         }
 
-        BdApi.Webpack.waitForModule(m => m.displayName === "ForwardRef(FluxContainer(GuildSettingsAuditLogEntry))").then((FluxContainerModule) => {
-            attemptPatchAuditLogUser(FluxContainerModule);
-        });
+        try {
+            BdApi.Webpack.waitForModule(
+                m => m?.displayName === "ForwardRef(FluxContainer(GuildSettingsAuditLogEntry))",
+                { defaultExport: true, searchExports: false }
+            ).then((FluxContainerModule) => {
+                if (FluxContainerModule) attemptPatchAuditLogUser(FluxContainerModule);
+            }).catch(error => console.warn("[MoreRoleColors] Could not patch audit log", error));
+        } catch (error) {
+            console.warn("[MoreRoleColors] Could not search for the audit log module", error);
+        }
     }
 
     patchRoleHeaders() {
@@ -907,6 +914,7 @@ module.exports = class MoreRoleColors {
         ).then((MessageContentMRC) => {
         BdApi.Patcher.after("MoreRoleColors-messages", MessageContentMRC, "type", (_, [props], res) => {
             if (!props?.message?.author?.id) return res;
+            if (props.message.type === 24) return res;
             
             const guildId = SelectedGuildStore.getGuildId();
             if (!guildId) return res;
