@@ -908,6 +908,9 @@ module.exports = class MoreRoleColors {
         BdApi.Patcher.after("MoreRoleColors-messages", MessageContentMRC, "type", (_, [props], res) => {
             if (!props?.message?.author?.id) return res;
             if (props.message.type === 24) return res;
+
+            // POLL_RESULT contains a system notice and result card, not author-written text.
+            if (props.message.type === 46) return res;
             
             const guildId = SelectedGuildStore.getGuildId();
             if (!guildId) return res;
